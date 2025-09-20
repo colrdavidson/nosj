@@ -1,1 +1,1 @@
-clang -o nosj -std=c23 -O0 -g main.c
+clang -o nosj -O3 main.c

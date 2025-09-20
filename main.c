@@ -1,13 +1,12 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #define NJ_MIN(a, b) ((a) < (b) ? (a) : (b))
-
-char json_data[] = {
-	#embed "data.json"
-};
 
 typedef enum {
 	NJ_OK,
@@ -92,7 +91,7 @@ NJ_Reader nj_init(uint64_t file_size, char *buffer, uint64_t buf_size) {
 		.buf_size = buf_size,
 
 		.depth = 0,
-		.line_no = 0,
+		.line_no = 1,
 	};
 }
 
@@ -167,6 +166,9 @@ next_char:
 		if (ch == ',' && in_value) {
 			in_value = false;
 		}
+		if (ch == '\n') {
+			r->line_no += 1;
+		}
 		nj_step(r);
 		goto next_char;
 	}
@@ -185,7 +187,7 @@ next_char:
 			}
 
 			char ch = r->buffer[r->buf_pos];
-			if (!(nj_is_digit(ch) || ch == 'E' || ch == 'e' || ch == '-' || ch == '+')) {
+			if (!(nj_is_digit(ch) || ch == '.' || ch == 'E' || ch == 'e' || ch == '-' || ch == '+')) {
 				v.len = r->pos - start_pos;
 				goto success;
 			}
@@ -203,7 +205,8 @@ next_char:
 		v.start = r->buf_pos;
 		for (;;) {
 			char ch = r->buffer[r->buf_pos];
-			if (ch == '"') {
+			char prev_ch = r->buffer[r->buf_pos-1];
+			if (ch == '"' && prev_ch != '\\') {
 				v.len = r->pos - start_pos;
 				nj_step(r);
 
@@ -284,7 +287,7 @@ next_char:
 		return nj_eof();
 	}
 
-	printf("%c || %d\n", ch, ch);
+	printf("%c || %d || line: %llu || pos: %llu\n", ch, ch, r->line_no, r->pos);
 	return nj_error("Unknown token");
 
 success:
@@ -294,11 +297,19 @@ success:
 }
 
 int main(int argc, char **argv) {
-	uint64_t file_size = sizeof(json_data) - 1;
-	uint64_t buf_size = 10;
+	if (argc < 2) {
+		printf("Expected nosj <file>\n");
+		return 1;
+	}
+
+	int fd = open(argv[1], O_RDONLY);
+	uint64_t file_size = lseek(fd, 0, SEEK_END);
+	lseek(fd, 0, SEEK_SET);
+
+	uint64_t buf_size = 1024 * 10;
 	char *buffer = (char *)calloc(1, buf_size);
 	uint64_t rem_len = NJ_MIN(file_size, buf_size);
-	memcpy(buffer, json_data, rem_len);
+	read(fd, buffer, rem_len);
 	printf("reading json of size: %llu\n", file_size);
 
 	NJ_Reader r = nj_init(file_size, buffer, buf_size);
@@ -314,7 +325,7 @@ int main(int argc, char **argv) {
 		// FEED ME MORE DATA
 		if (ret.adv_type == NJ_MORE) {
 			if (r.skim_pos == r.last_skim_pos) {
-				printf("looping?\n");
+				printf("looping? line: %llu || buf: %.*s\n", r.line_no, (int)r.buf_size, r.buffer);
 				return 1;
 			}
 			r.pos = r.skim_pos;
@@ -322,16 +333,18 @@ int main(int argc, char **argv) {
 			r.buf_pos = 0;
 
 			uint64_t rem_len = NJ_MIN(file_size - r.pos, buf_size);
-			memcpy(r.buffer, json_data + r.pos, rem_len);
+			pread(fd, r.buffer, rem_len, r.pos);
 			ret = (NJ_Return){};
 			continue;
 		}
 
 		if (ret.adv_type == NJ_OK) {
 			if (ret.val.type == NJ_FAIL) {
+				printf("Got invalid type!\n");
 				return 1;
 			}
 
+/*
 			printf("got val: %s | ", nj_tok_type_to_str(ret.val.type));
 			if (ret.val.type == NJ_STRING || ret.val.type == NJ_NUMBER || ret.val.type == NJ_BOOL) {
 				printf("%.*s", (int)ret.val.len, r.buffer + ret.val.start);
@@ -340,6 +353,7 @@ int main(int argc, char **argv) {
 			} else if (ret.val.type == NJ_END) { printf("}/]");
 			} else if (ret.val.type == NJ_NULL) { printf("null"); }
 			printf("\n");
+*/
 		}
 
 		if (ret.adv_type == NJ_EOF) {

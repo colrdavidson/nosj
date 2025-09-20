@@ -123,6 +123,7 @@ bool nj_is_number_extra(char ch) {
 	return (ch == '.' || ch == 'e' || ch == 'E');
 }
 
+
 NJ_Advance_Type nj_check(NJ_Reader *r) {
 	if (r->pos > r->file_size) {
 		return NJ_EOF;
@@ -135,9 +136,26 @@ NJ_Advance_Type nj_check(NJ_Reader *r) {
 	return NJ_OK;
 }
 
+NJ_Advance_Type nj_check_multi(NJ_Reader *r, uint64_t size) {
+	if ((r->pos + size) >= r->file_size) {
+		return NJ_EOF;
+	}
+
+	if ((r->buf_pos + size) >= r->buf_size) {
+		return NJ_MORE;
+	}
+
+	return NJ_OK;
+}
+
 void nj_step(NJ_Reader *r) {
 	r->pos += 1;
 	r->buf_pos += 1;
+}
+
+void nj_step_multi(NJ_Reader *r, uint64_t size) {
+	r->pos += size;
+	r->buf_pos += size;
 }
 
 NJ_Return nj_report(NJ_Advance_Type type) {
@@ -233,35 +251,28 @@ next_char:
 		if (ch == 'n') {
 			check_str = null_tok;
 			check_len = sizeof(null_tok) - 1;
-
 			v.type = NJ_NULL;
 		} else if (ch == 't') {
 			check_str = true_tok;
 			check_len = sizeof(true_tok) - 1;
-
 			v.type = NJ_BOOL;
-			v.start = r->buf_pos;
-			v.len = check_len;
 		} else if (ch == 'f') {
 			check_str = false_tok;
 			check_len = sizeof(false_tok) - 1;
-
 			v.type = NJ_BOOL;
-			v.start = r->buf_pos;
-			v.len = check_len;
 		}
 
-		for (int i = 0; i < check_len; i++) {
-			char ch = r->buffer[r->buf_pos];
-			if (ch != check_str[i]) {
-				return nj_error("invalid token!\n");
-			}
+		v.start = r->buf_pos;
+		v.len = check_len;
 
-			nj_step(r);
-			if ((adv = nj_check(r)) != NJ_OK) {
-				return nj_report(adv);
-			}
+		if ((adv = nj_check_multi(r, check_len)) != NJ_OK) {
+			return nj_report(adv);
 		}
+
+		if (memcmp(r->buffer + r->buf_pos, check_str, check_len) != 0) {
+			return nj_error("invalid token!\n");
+		}
+		nj_step_multi(r, check_len);
 
 		goto success;
 	}

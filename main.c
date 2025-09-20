@@ -306,7 +306,7 @@ int main(int argc, char **argv) {
 	uint64_t file_size = lseek(fd, 0, SEEK_END);
 	lseek(fd, 0, SEEK_SET);
 
-	uint64_t buf_size = 1024 * 10;
+	uint64_t buf_size = 10 * 1024 * 1024;
 	char *buffer = (char *)calloc(1, buf_size);
 	uint64_t rem_len = NJ_MIN(file_size, buf_size);
 	read(fd, buffer, rem_len);
@@ -332,7 +332,8 @@ int main(int argc, char **argv) {
 			r.last_skim_pos = r.skim_pos;
 			r.buf_pos = 0;
 
-			uint64_t rem_len = NJ_MIN(file_size - r.pos, buf_size);
+			memset(r.buffer, 0, r.buf_size);
+			uint64_t rem_len = NJ_MIN(file_size - r.pos, r.buf_size);
 			pread(fd, r.buffer, rem_len, r.pos);
 			ret = (NJ_Return){};
 			continue;
